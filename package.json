@@ -1,0 +1,17 @@
+{
+  "name": "solfollow-pumpfun",
+  "version": "3.0.0",
+  "scripts": {
+    "dev": "nodemon server.js --ignore data.json",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.3",
+    "bs58": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "lowdb": "^1.0.0",
+    "node-fetch": "^3.3.2"
+  }
+}

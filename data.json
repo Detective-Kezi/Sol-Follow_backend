@@ -1,0 +1,15 @@
+{
+  "settings": {
+    "baseBuyAmount": 0.5,
+    "currentBuyAmount": 0.5,
+    "slippage": 15,
+    "maxBuyAmount": 5
+  },
+  "watched": [],
+  "positions": {},
+  "trades": [],
+  "pendingBuys": {},
+  "totalProfit": 0,
+  "goldenAlphas": [],
+  "firstBuyerStats": {}
+}
