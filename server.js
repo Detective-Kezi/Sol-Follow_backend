@@ -16,7 +16,9 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const connection = new Connection("https://api.mainnet-beta.solana.com", "confirmed");
+const RPC_URL = process.env.RPC_URL || "https://api.mainnet-beta.solana.com";
+const connection = new Connection(RPC_URL, "confirmed");
+console.log("RPC Connected →", RPC_URL);
 
 // ==================== CONFIG ====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
@@ -328,4 +330,5 @@ server.listen(PORT, () => {
   console.log("\nSOLFOLLOW v7.1 — FULLY ARMED & COMPLETE");
   console.log("• Golden Alpha Scoring • Pump.fun Listener • Telegram • Price Feeds • Jito");
   console.log("Dashboard → http://localhost:5173\n");
+
 });
