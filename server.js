@@ -335,6 +335,16 @@ app.post('/webhook', (req, res) => {
   res.sendStatus(200);
 });
 
+// ADD THIS HEALTH CHECK — RAILWAY REQUIRES IT
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// ALSO ADD ROOT ROUTE (so opening URL doesn't 404)
+app.get('/', (req, res) => {
+  res.send('SolFollow Ultimate v7.1 — BACKEND LIVE & PRINTING');
+});
+
 // ==================== START ====================
 const PORT = 3001;
 server.listen(PORT, () => {
@@ -343,5 +353,6 @@ server.listen(PORT, () => {
   console.log("Dashboard → http://localhost:5173\n");
 
 });
+
 
 
