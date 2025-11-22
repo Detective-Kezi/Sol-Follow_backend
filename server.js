@@ -14,12 +14,17 @@ const db = low(adapter);
 const app = express();
 app.use(express.json());
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: "*",                              // TEMP: allow all domains (Railway + localhost)
     methods: ["GET", "POST"],
-    credentials: true
-  }
+    credentials: false
+  },
+  transports: ['websocket', 'polling'],
+  path: '/socket.io/',                        // Standard path
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 const RPC_URL = process.env.RPC_URL || "https://api.mainnet-beta.solana.com";
@@ -338,4 +343,5 @@ server.listen(PORT, () => {
   console.log("Dashboard → http://localhost:5173\n");
 
 });
+
 
