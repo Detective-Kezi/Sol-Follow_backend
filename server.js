@@ -14,7 +14,13 @@ const db = low(adapter);
 const app = express();
 app.use(express.json());
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
 
 const RPC_URL = process.env.RPC_URL || "https://api.mainnet-beta.solana.com";
 const connection = new Connection(RPC_URL, "confirmed");
@@ -332,3 +338,4 @@ server.listen(PORT, () => {
   console.log("Dashboard → http://localhost:5173\n");
 
 });
+
