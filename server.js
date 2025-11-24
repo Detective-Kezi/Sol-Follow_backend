@@ -1,4 +1,4 @@
-// backend/server.js — SOLFOLLOW v10 — PAST MOONSHOT ALPHA EXTRACTOR (FULL & FINAL)
+// backend/server.js — SOLFOLLOW v11 — FINAL & COMPLETE
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -35,7 +35,7 @@ async function sendTelegram(message) {
     await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message, parse_mode: "HTML" })
+      body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message, parse_mode: "HTML", disable_web_page_preview: true })
     });
   } catch (e) { console.error("Telegram failed:", e.message); }
 }
@@ -69,7 +69,7 @@ try {
   process.exit(1);
 }
 
-// JUPITER QUOTE & SWAP
+// JUPITER
 async function getQuote(input, output, amount, slippage = 15) {
   const params = new URLSearchParams({
     inputMint: input,
@@ -122,9 +122,128 @@ async function sendJitoBundle(transactions, tipLamports = 50000) {
   }
 }
 
+// MULTIPLIER TABLE
+const MULTIPLIER_TABLE = {1:100,2:300,3:600,4:1000,5:1500,6:2100,7:2800,8:3600,9:4500,10:5500};
+
+// TRUE ALPHA SCORING v11 — ONLY GODS
+async function updateGoldenAlpha(wallet) {
+  if (!wallet || wallet.length < 32) return;
+
+  try {
+    const signatures = await connection.getSignaturesForAddress(new PublicKey(wallet), { limit: 500 });
+    if (signatures.length < 10) return;
+
+    let wins = 0, totalTrades = 0, totalProfit = 0, earlyCount = 0, jitoCount = 0;
+
+    for (const sig of signatures) {
+      const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
+      if (!tx || tx.meta?.err) continue;
+
+      const hasJitoTip = tx.transaction.message.instructions.some(ix =>
+        ix.programId.toBase58() === "T1pyyaTNZsKv2WcRAB8oVnk93mLJw2Y8zZ7R8gVFf4px"
+      );
+      if (hasJitoTip) jitoCount++;
+
+      const buy = tx.transaction.message.instructions.find(ix =>
+        ix.parsed?.type === "transfer" &&
+        ix.parsed?.info?.source === "So11111111111111111111111111111111111111112"
+      );
+
+      if (buy) {
+        totalTrades++;
+        const mint = buy.parsed.info.destination;
+        const amountSOL = parseFloat(buy.parsed.info.lamports) / LAMPORTS_PER_SOL;
+
+        try {
+          const priceRes = await fetch(`https://price.jup.ag/v6/price?ids=${mint}`);
+          const priceData = await priceRes.json();
+          const currentPrice = priceData.data[mint]?.price || 0;
+
+          if (currentPrice > amountSOL * 10 / 1000000) {
+            wins++;
+            totalProfit += currentPrice * 1000000 - amountSOL;
+            earlyCount++;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (totalTrades === 0) return;
+
+    const winRate = wins / totalTrades;
+    const avgPosScore = earlyCount / totalTrades;
+    const profitScore = Math.min(totalProfit / 1000, 10);
+    const jitoRate = jitoCount / signatures.length;
+
+    const score = (
+      winRate * 50 +
+      avgPosScore * 20 +
+      profitScore * 15 +
+      wins * 10 +
+      jitoRate * 5
+    ).toFixed(1);
+
+    if (score < 6.0) return;
+
+    let alphas = db.get('goldenAlphas').value() || [];
+    const existing = alphas.find(a => a.fullAddress === wallet);
+    const alphaData = {
+      address: wallet.slice(0,8) + "..." + wallet.slice(-4),
+      fullAddress: wallet,
+      score,
+      winRate: (winRate * 100).toFixed(0) + "%",
+      totalProfit: totalProfit.toFixed(1) + " SOL",
+      wins,
+      jitoRate: (jitoRate * 100).toFixed(0) + "%"
+    };
+
+    if (existing) Object.assign(existing, alphaData);
+    else alphas.push(alphaData);
+
+    alphas = alphas.sort((a,b) => b.score - a.score).slice(0,15);
+    db.set('goldenAlphas', alphas).write();
+    io.emit('goldenAlphasUpdate', alphas);
+
+    console.log(`TRUE ALPHA → ${wallet.slice(0,8)}... Score: ${score}`);
+    sendTelegram(`TRUE ALPHA DETECTED\n${wallet}\nScore: ${score} | Win Rate: ${winRate*100}%`);
+
+  } catch (e) {
+    console.error("Alpha scoring failed:", e.message);
+  }
+}
+
+// EXTRACT FROM PAST MOONSHOT
+async function extractAlphasFromCA(ca) {
+  if (db.get('pastMoonshots').value().includes(ca)) return;
+  console.log(`Extracting alphas from: ${ca.slice(0,8)}...`);
+  sendTelegram(`MOONSHOT ADDED\n${ca}\nExtracting early buyers...`);
+
+  try {
+    const signatures = await connection.getSignaturesForAddress(new PublicKey(ca), { limit: 100 });
+    const buyers = new Set();
+
+    for (const sig of signatures) {
+      const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
+      if (!tx || tx.meta?.err) continue;
+
+      tx.transaction.message.instructions.forEach(ix => {
+        if (ix.parsed?.type === "transfer" && ix.parsed?.info?.source === "So11111111111111111111111111111111111111112") {
+          buyers.add(ix.parsed.info.destination);
+        }
+      });
+    }
+
+    Array.from(buyers).slice(0, 15).forEach(wallet => updateGoldenAlpha(wallet));
+    db.get('pastMoonshots').push(ca).write();
+    sendTelegram(`EXTRACTION COMPLETE\nTop 15 early buyers added to Golden Alphas`);
+  } catch (e) {
+    console.error("CA extraction failed:", e.message);
+  }
+}
+
 // CONSENSUS BUY
 async function executeBuy(tokenMint, alphaWallet) {
-  let pending = db.get(`pendingBuys.${tokenMint}`).value() || { count: 0, alphas: [], lastSeen: Date.now()};
+  let pending = db.get(`pendingBuys.${tokenMint}`).value() || { count: 0, alphas: [], lastSeen: Date.now() };
   if (!pending.alphas.includes(alphaWallet)) {
     pending.alphas.push(alphaWallet);
     pending.count = pending.alphas.length;
@@ -138,7 +257,7 @@ async function executeBuy(tokenMint, alphaWallet) {
   }
 
   const alphaCount = pending.count;
-  const multiplier = [0,100,300,600,1000,1500,2100,2800,3600,4500,5500][alphaCount] || 5500;
+  const multiplier = MULTIPLIER_TABLE[alphaCount] || 5500;
   const position = db.get(`positions.${tokenMint}`).value();
 
   if (!position && alphaCount >= 1) {
@@ -169,7 +288,7 @@ async function executeBuy(tokenMint, alphaWallet) {
       }).write();
 
       io.emit('newTrade', { token: tokenMint.slice(0,8), type: "BUY", amount: currentBuy, alphas: alphaCount, multiplier });
-      sendTelegram(`<b>BUY FIRED</b>\nToken: <code>${tokenMint}</code>\nAlphas: ${alphaCount} → ${multiplier}% TP\nSize: ${currentBuy} SOL`);
+      sendTelegram(`BUY FIRED\nToken: ${tokenMint}\nAlphas: ${alphaCount} → ${multiplier}% TP\nSize: ${currentBuy} SOL`);
 
       db.unset(`pendingBuys.${tokenMint}`).write();
     } catch (e) {
@@ -201,80 +320,15 @@ setInterval(async () => {
           .write();
 
         io.emit('sold', { token: mint.slice(0,8), profit: profitPct.toFixed(1), newBuyAmount: newBuyAmount.toFixed(3) });
-        sendTelegram(`<b>SOLD — TARGET HIT</b>\nToken: <code>${mint.slice(0,8)}</code>\nProfit: +${profitPct.toFixed(1)}% (${profitSOL.toFixed(3)} SOL)`);
+        sendTelegram(`SOLD — TARGET HIT\nToken: ${mint.slice(0,8)}\nProfit: +${profitPct.toFixed(1)}% (${profitSOL.toFixed(3)} SOL)`);
       }
     } catch (e) {}
   }
 }, 8000);
 
-// EXTRACT ALPHAS FROM PAST MOONSHOT
-async function extractAlphasFromCA(ca) {
-  if (db.get('pastMoonshots').value().includes(ca)) return;
-  console.log(`Extracting alphas from: ${ca.slice(0,8)}...`);
-  sendTelegram(`<b>MOONSHOT ADDED</b>\n<code>${ca}</code>\nExtracting early buyers...`);
-
-  try {
-    const signatures = await connection.getSignaturesForAddress(new PublicKey(ca), { limit: 100 });
-    const buyers = {};
-
-    for (const sig of signatures) {
-      const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
-      if (!tx || tx.meta?.err) continue;
-
-      const transfer = tx.transaction.message.instructions.find(i =>
-        i.parsed?.type === "transfer" &&
-        i.parsed?.info?.destination &&
-        i.parsed?.info?.source === "So11111111111111111111111111111111111111112"
-      );
-
-      if (transfer) {
-        const wallet = transfer.parsed.info.destination;
-        if (!buyers[wallet]) {
-          const position = Object.keys(buyers).length + 1;
-          buyers[wallet] = { position, volume: parseFloat(transfer.parsed.info.lamports) / LAMPORTS_PER_SOL };
-        }
-      }
-    }
-
-    Object.entries(buyers).slice(0, 10).forEach(([wallet, data]) => {
-      const stats = db.get(`alphaStats.${wallet}`).value() || { wins: 0, total: 0, avgPos: 0, volume: 0 };
-      stats.total++;
-      stats.avgPos = ((stats.avgPos * (stats.total - 1)) + data.position) / stats.total;
-      stats.volume += data.volume;
-      if (data.position <= 5) stats.wins++;
-      db.set(`alphaStats.${wallet}`, stats).write();
-
-      const score = Math.min(10, ((10 - stats.avgPos) * 1.5 + (stats.wins / stats.total) * 100 * 0.8 + Math.min(stats.volume / 30, 10) * 0.5).toFixed(1));
-
-      let alphas = db.get('goldenAlphas').value() || [];
-      const existing = alphas.find(a => a.fullAddress === wallet);
-      const alphaData = {
-        address: wallet.slice(0,8) + "..." + wallet.slice(-4),
-        fullAddress: wallet,
-        score,
-        avgPosition: stats.avgPos.toFixed(1) + "%",
-        winRate: ((stats.wins / stats.total) * 100).toFixed(0) + "%",
-        volume24h: stats.volume.toFixed(1) + " SOL"
-      };
-
-      if (existing) Object.assign(existing, alphaData);
-      else alphas.push(alphaData);
-
-      alphas = alphas.sort((a,b) => b.score - a.score).slice(0,10);
-      db.set('goldenAlphas', alphas).write();
-      io.emit('goldenAlphasUpdate', alphas);
-    });
-
-    db.get('pastMoonshots').push(ca).write();
-    sendTelegram(`EXTRACTION COMPLETE\nTop 10 early buyers added to Golden Alphas`);
-  } catch (e) {
-    console.error("CA extraction failed:", e.message);
-  }
-}
-
 // SOCKET
 io.on('connection', (socket) => {
-  console.log("DASHBOARD CONNECTED");
+  console.log("DASHBOARD CONNECTED →", socket.handshake.headers.origin);
   socket.emit('init', {
     trades: db.get('trades').take(50).value() || [],
     settings: db.get('settings').value() || {},
@@ -288,7 +342,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// WEBHOOK (for future Helius)
+// WEBHOOK
 app.post('/webhook', (req, res) => {
   req.body.forEach(tx => {
     if (tx.type === "SWAP" && tx.tokenTransfers?.[0]?.mint && db.get('watched').value().includes(tx.feePayer)) {
@@ -300,11 +354,11 @@ app.post('/webhook', (req, res) => {
 
 // HEALTH
 app.get('/health', (req, res) => res.status(200).send('OK'));
-app.get('/', (req, res) => res.send('SolFollow v10 — PAST MOONSHOT ALPHA EXTRACTOR'));
+app.get('/', (req, res) => res.send('SolFollow v11 — TRUE ALPHA SCORING'));
 
 // START
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\nSOLFOLLOW v10 — LIVE ON PORT ${PORT}`);
-  console.log("Add a past moonshot CA → extracts real alphas → prints forever\n");
+  console.log(`\nSOLFOLLOW v11 — LIVE ON PORT ${PORT}`);
+  console.log("Add past moonshot CAs → extracts true alphas → prints forever\n");
 });
