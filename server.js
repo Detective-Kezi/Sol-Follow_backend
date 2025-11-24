@@ -10,6 +10,7 @@ const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
 const adapter = new FileSync('data.json');
 const db = low(adapter);
+const PUMP_FUN_PROGRAM = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 
 const app = express();
 app.use(express.json());
@@ -125,13 +126,13 @@ async function sendJitoBundle(transactions, tipLamports = 50000) {
 }
 
 // MULTIPLIER TABLE
-const MULTIPLIER_TABLE = {1:100,2:300,3:600,4:1000,5:1500,6:2100,7:2800,8:3600,9:4500,10:5500};
+const MULTIPLIER_TABLE = { 1: 100, 2: 300, 3: 600, 4: 1000, 5: 1500, 6: 2100, 7: 2800, 8: 3600, 9: 4500, 10: 5500 };
 
 // ==================== GOLDEN ALPHA GRADING — 100% LIVE ====================
 function updateGoldenAlpha(wallet, position) {
   const stats = db.get('firstBuyerStats').value() || {};
   const entry = stats[wallet] || { wins: 0, total: 0, avgPos: 0, volume: 0 };
-  
+
   entry.total++;
   entry.avgPos = ((entry.avgPos * (entry.total - 1)) + position) / entry.total;
   entry.volume += db.get('settings.currentBuyAmount').value() || 0.5;
@@ -148,7 +149,7 @@ function updateGoldenAlpha(wallet, position) {
   let alphas = db.get('goldenAlphas').value() || [];
   const existing = alphas.find(a => a.fullAddress === wallet);
   const alphaData = {
-    address: wallet.slice(0,8) + "..." + wallet.slice(-4),
+    address: wallet.slice(0, 8) + "..." + wallet.slice(-4),
     fullAddress: wallet,
     score,
     avgPosition: entry.avgPos.toFixed(1) + "%",
@@ -160,10 +161,10 @@ function updateGoldenAlpha(wallet, position) {
   if (existing) Object.assign(existing, alphaData);
   else alphas.push(alphaData);
 
-  alphas = alphas.sort((a,b) => b.score - a.score).slice(0,10);
+  alphas = alphas.sort((a, b) => b.score - a.score).slice(0, 10);
   db.set('goldenAlphas', alphas).write();
   io.emit('goldenAlphasUpdate', alphas);
-  console.log(`GOLDEN ALPHA → ${wallet.slice(0,8)}... Score: ${score}`);
+  console.log(`GOLDEN ALPHA → ${wallet.slice(0, 8)}... Score: ${score}`);
 }
 
 // ==================== CONSENSUS BUY ====================
@@ -211,7 +212,7 @@ async function executeBuy(tokenMint, alphaWallet) {
       }).write();
 
       db.get('trades').unshift({
-        token: tokenMint.slice(0,8),
+        token: tokenMint.slice(0, 8),
         type: "BUY",
         amount: currentBuy,
         alphas: alphaCount,
@@ -219,8 +220,8 @@ async function executeBuy(tokenMint, alphaWallet) {
         time: new Date().toISOString()
       }).write();
 
-      io.emit('newTrade', { token: tokenMint.slice(0,8), type: "BUY", amount: currentBuy, alphas: alphaCount, multiplier });
-      sendTelegram(`<b>BUY FIRED</b>\nToken: <code>${tokenMint.slice(0,8)}</code>...\nAlphas: ${alphaCount} → ${multiplier}% TP\nSize: ${currentBuy} SOL`);
+      io.emit('newTrade', { token: tokenMint.slice(0, 8), type: "BUY", amount: currentBuy, alphas: alphaCount, multiplier });
+      sendTelegram(`<b>BUY FIRED</b>\nToken: <code>${tokenMint.slice(0, 8)}</code>...\nAlphas: ${alphaCount} → ${multiplier}% TP\nSize: ${currentBuy} SOL`);
 
       db.unset(`pendingBuys.${tokenMint}`).write();
     } catch (e) {
@@ -239,7 +240,7 @@ setInterval(async () => {
       const profitPct = ((currentPrice - pos.avgBuyPrice) / pos.avgBuyPrice) * 100;
 
       if (profitPct >= pos.targetMultiplier) {
-        console.log(`SELLING ${mint.slice(0,8)} at +${profitPct.toFixed(1)}%`);
+        console.log(`SELLING ${mint.slice(0, 8)} at +${profitPct.toFixed(1)}%`);
         const swapData = await getSwapTx(quote);
         const tx = VersionedTransaction.deserialize(Buffer.from(swapData.swapTransaction, "base64"));
         tx.sign([botKeypair]);
@@ -252,41 +253,62 @@ setInterval(async () => {
           .unset(`positions.${mint}`)
           .write();
 
-        io.emit('sold', { token: mint.slice(0,8), profit: profitPct.toFixed(1), newBuyAmount: newBuyAmount.toFixed(3) });
-        sendTelegram(`<b>SOLD</b>\nToken: <code>${mint.slice(0,8)}</code>...\nProfit: +${profitPct.toFixed(1)}% (${profitSOL.toFixed(3)} SOL)`);
+        io.emit('sold', { token: mint.slice(0, 8), profit: profitPct.toFixed(1), newBuyAmount: newBuyAmount.toFixed(3) });
+        sendTelegram(`<b>SOLD</b>\nToken: <code>${mint.slice(0, 8)}</code>...\nProfit: +${profitPct.toFixed(1)}% (${profitSOL.toFixed(3)} SOL)`);
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 }, 8000);
 
-// ==================== PUMP.FUN LISTENER ====================
-const PUMP_FUN_PROGRAM = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
+// ==================== PUMP.FUN LISTENER v3 — REAL FIRST BUYERS + MINT EXTRACTION ====================
 let lastSignature = null;
+
 async function listenPumpFun() {
   try {
-    console.log("Contacting Pump.fun")
-    const sigs = await connection.getSignaturesForAddress(PUMP_FUN_PROGRAM, { limit: 5 });
+    const sigs = await connection.getSignaturesForAddress(PUMP_FUN_PROGRAM, { limit: 10 });
     const latest = sigs[0];
     if (!latest || latest.signature === lastSignature) return;
     lastSignature = latest.signature;
 
-    const tx = await connection.getParsedTransaction(latest.signature, { maxSupportedTransactionVersion: 0 });
+    const tx = await connection.getParsedTransaction(latest.signature, {
+      maxSupportedTransactionVersion: 0,
+      commitment: 'confirmed'
+    });
+
     if (!tx || tx.meta?.err) return;
 
+    // Find the Create instruction (new token launch)
+    const createIx = tx.transaction.message.instructions.find(ix =>
+      ix.programId.toBase58() === PUMP_FUN_PROGRAM.toBase58() &&
+      ix.parsed?.type === "create"
+    );
+
+    if (!createIx) return;
+
+    const newMint = createIx.parsed.info.mint;
+    console.log(`NEW PUMP.FUN TOKEN → ${newMint.slice(0, 8)}...`);
+
+    // Get all SOL transfers in this tx (first buyers)
     const transfers = tx.transaction.message.instructions
       .filter(i => i.parsed?.type === "transfer" && i.parsed?.info?.source === "So11111111111111111111111111111111111111112")
-      .map(i => ({ wallet: i.parsed.info.destination }))
+      .map((i, idx) => ({
+        wallet: i.parsed.info.destination,
+        position: idx + 1
+      }))
       .slice(0, 10);
 
-    transfers.forEach((t, i) => {
-      const pos = i + 1;
-      console.log(`FIRST BUYER #${pos} → ${t.wallet.slice(0,8)}...`);
-      sendTelegram(`FIRST BUYER #${pos}\n<code>${t.wallet}</code>`);
-      updateGoldenAlpha(t.wallet, pos);
+    transfers.forEach(t => {
+      console.log(`FIRST BUYER #${t.position} → ${t.wallet.slice(0, 8)}...`);
+      sendTelegram(`FIRST BUYER #${t.position}\n<code>${t.wallet}</code>`);
+      updateGoldenAlpha(t.wallet, t.position);
     });
-  } catch (e) { console.error("Pump.fun error:", e.message); }
+
+  } catch (e) {
+    // Silent — don't crash the bot
+  }
 }
-setInterval(listenPumpFun, 3000);
+
+setInterval(listenPumpFun, 3500); // Every 3.5 sec — fast but safe
 
 // ==================== SOCKET ====================
 io.on('connection', (socket) => {
