@@ -260,55 +260,76 @@ setInterval(async () => {
   }
 }, 8000);
 
-// ==================== PUMP.FUN LISTENER v3 — REAL FIRST BUYERS + MINT EXTRACTION ====================
-let lastSignature = null;
+// ==================== PUMP.FUN v2025 — REAL FIRST BUYERS (WORKING NOW) ====================
+let lastCheckedSlot = null;
 
 async function listenPumpFun() {
   try {
-    const sigs = await connection.getSignaturesForAddress(PUMP_FUN_PROGRAM, { limit: 10 });
-    const latest = sigs[0];
-    if (!latest || latest.signature === lastSignature) return;
-    lastSignature = latest.signature;
-
-    const tx = await connection.getParsedTransaction(latest.signature, {
-      maxSupportedTransactionVersion: 0,
-      commitment: 'confirmed'
+    const currentSlot = await connection.getSlot("finalized");
+    if (lastCheckedSlot && currentSlot <= lastCheckedSlot) return;
+    
+    const sigs = await connection.getSignaturesForAddress(PUMP_FUN_PROGRAM, { 
+      limit: 20,
+      until: lastCheckedSlot ? undefined : undefined
     });
 
-    if (!tx || tx.meta?.err) return;
+    if (sigs.length === 0) return;
 
-    // Find the Create instruction (new token launch)
-    const createIx = tx.transaction.message.instructions.find(ix =>
-      ix.programId.toBase58() === PUMP_FUN_PROGRAM.toBase58() &&
-      ix.parsed?.type === "create"
-    );
+    for (const sig of sigs.reverse()) {
+      if (lastCheckedSlot && sig.slot <= lastCheckedSlot) continue;
 
-    if (!createIx) return;
+      const tx = await connection.getTransaction(sig.signature, {
+        maxSupportedTransactionVersion: 0,
+        commitment: "confirmed"
+      });
 
-    const newMint = createIx.parsed.info.mint;
-    console.log(`NEW PUMP.FUN TOKEN → ${newMint.slice(0, 8)}...`);
+      if (!tx || tx.meta?.err) continue;
 
-    // Get all SOL transfers in this tx (first buyers)
-    const transfers = tx.transaction.message.instructions
-      .filter(i => i.parsed?.type === "transfer" && i.parsed?.info?.source === "So11111111111111111111111111111111111111112")
-      .map((i, idx) => ({
-        wallet: i.parsed.info.destination,
-        position: idx + 1
-      }))
-      .slice(0, 10);
+      // Find the mint creation (new token)
+      const mintCreate = tx.transaction.message.instructions.find(ix => 
+        ix.programId.equals(PUMP_FUN_PROGRAM) && 
+        ix.accounts[4]?.toBase58() // mint account position in create ix
+      );
 
-    transfers.forEach(t => {
-      console.log(`FIRST BUYER #${t.position} → ${t.wallet.slice(0, 8)}...`);
-      sendTelegram(`FIRST BUYER #${t.position}\n<code>${t.wallet}</code>`);
-      updateGoldenAlpha(t.wallet, t.position);
-    });
+      if (!mintCreate) continue;
 
+      const mint = mintCreate.accounts[4].toBase58();
+      console.log(`NEW PUMP.FUN TOKEN → ${mint.slice(0,8)}...`);
+
+      // Get all SOL transfers in this block (first buyers)
+      const block = await connection.getBlock(sig.slot, { maxSupportedTransactionVersion: 0 });
+      if (!block) continue;
+
+      const buyers = new Map();
+      block.transactions.forEach((t, idx) => {
+        if (t.meta?.err) return;
+        t.transaction.message.instructions.forEach(ix => {
+          if (ix.programId.equals(SystemProgram.programId) && ix.parsed?.type === "transfer") {
+            const dest = ix.parsed.info.destination;
+            if (!buyers.has(dest)) {
+              buyers.set(dest, idx + 1); // position in block
+            }
+          }
+        });
+      });
+
+      // Top 10 first buyers
+      Array.from(buyers.entries())
+        .slice(0, 10)
+        .forEach(([wallet, pos]) => {
+          console.log(`GOLDEN ALPHA #${pos} → ${wallet.slice(0,8)}...`);
+          sendTelegram(`FIRST BUYER #${pos}\n<code>${wallet}</code>`);
+          updateGoldenAlpha(wallet, pos);
+        });
+    }
+
+    lastCheckedSlot = currentSlot;
   } catch (e) {
-    // Silent — don't crash the bot
+    // Silent — never crash
   }
 }
 
-setInterval(listenPumpFun, 3500); // Every 3.5 sec — fast but safe
+setInterval(listenPumpFun, 4000);
 
 // ==================== SOCKET ====================
 io.on('connection', (socket) => {
