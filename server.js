@@ -289,6 +289,29 @@ app.post('/api/settings', (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/add-ca', async (req, res) => {
+  const { ca } = req.body;
+  
+  if (!ca || ca.length < 32) {
+    return res.status(400).json({ error: "Invalid CA" });
+  }
+
+  if (db.get('pastMoonshots').value().includes(ca)) {
+    return res.json({ success: true, message: "Already processed" });
+  }
+
+  console.log(`MOONSHOT CA ADDED → ${ca.slice(0,8)}...`);
+  
+  // Start extraction (your existing function)
+  try {
+    await extractAlphasFromCA(ca);  // ← this calls your full Golden Alpha extractor
+    res.json({ success: true, message: "Extraction started..." });
+  } catch (e) {
+    console.error("Extraction failed:", e.message);
+    res.status(500).json({ error: "Extraction failed" });
+  }
+});
+
 // HEALTH
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/', (req, res) => res.send('SolFollow v12 — HTTP API LIVE'));
