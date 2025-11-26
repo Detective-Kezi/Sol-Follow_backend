@@ -1,8 +1,6 @@
-// backend/server.js — SOLFOLLOW v11 — FINAL & COMPLETE
+// backend/server.js — SOLFOLLOW v12 — FINAL & COMPLETE (HTTP API ONLY)
 require('dotenv').config();
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
 const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction, Transaction, SystemProgram } = require('@solana/web3.js');
 const bs58 = require('bs58');
 const fetch = require('node-fetch');
@@ -13,32 +11,6 @@ const db = low(adapter);
 
 const app = express();
 app.use(express.json());
-const server = http.createServer(app);
-
-// SOCKET.IO — RAILWAY PROOF
-const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"], credentials: false },
-  transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000
-});
-
-// RPC
-const RPC_URL = process.env.RPC_URL || "https://api.mainnet-beta.solana.com";
-const connection = new Connection(RPC_URL, "confirmed");
-console.log("RPC Connected →", RPC_URL);
-
-// TELEGRAM
-async function sendTelegram(message) {
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
-  try {
-    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message, parse_mode: "HTML", disable_web_page_preview: true })
-    });
-  } catch (e) { console.error("Telegram failed:", e.message); }
-}
 
 // DATABASE
 db.defaults({
@@ -53,10 +25,6 @@ db.defaults({
   alphaStats: {}
 }).write();
 
-// PREVENT CRASHES
-process.on('uncaughtException', err => console.error('UNCAUGHT →', err));
-process.on('unhandledRejection', err => console.error('REJECTION →', err));
-
 // WALLET
 let botKeypair;
 try {
@@ -67,6 +35,23 @@ try {
 } catch (e) {
   console.error("Invalid BOT_PRIVATE_KEY");
   process.exit(1);
+}
+
+// RPC
+const RPC_URL = process.env.RPC_URL || "https://api.mainnet-beta.solana.com";
+const connection = new Connection(RPC_URL, "confirmed");
+console.log("RPC Connected →", RPC_URL);
+
+// TELEGRAM
+async function sendTelegram(message) {
+  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message, parse_mode: "HTML" })
+    });
+  } catch (e) { console.error("Telegram failed:", e.message); }
 }
 
 // JUPITER
@@ -125,91 +110,40 @@ async function sendJitoBundle(transactions, tipLamports = 50000) {
 // MULTIPLIER TABLE
 const MULTIPLIER_TABLE = {1:100,2:300,3:600,4:1000,5:1500,6:2100,7:2800,8:3600,9:4500,10:5500};
 
-// TRUE ALPHA SCORING v11 — ONLY GODS
-async function updateGoldenAlpha(wallet) {
-  if (!wallet || wallet.length < 32) return;
+// TRUE ALPHA SCORING
+function updateGoldenAlpha(wallet, position) {
+  const stats = db.get('alphaStats').value() || {};
+  const entry = stats[wallet] || { wins: 0, total: 0, avgPos: 0, volume: 0 };
+  entry.total++;
+  entry.avgPos = ((entry.avgPos * (entry.total - 1)) + position) / entry.total;
+  entry.volume += db.get('settings.currentBuyAmount').value() || 0.5;
+  if (position <= 5) entry.wins++;
 
-  try {
-    const signatures = await connection.getSignaturesForAddress(new PublicKey(wallet), { limit: 500 });
-    if (signatures.length < 10) return;
+  db.set(`alphaStats.${wallet}`, entry).write();
 
-    let wins = 0, totalTrades = 0, totalProfit = 0, earlyCount = 0, jitoCount = 0;
+  const score = Math.min(10, (
+    (10 - entry.avgPos) * 1.5 +
+    (entry.wins / entry.total) * 100 * 0.8 +
+    Math.min(entry.volume / 30, 10) * 0.5
+  ).toFixed(1));
 
-    for (const sig of signatures) {
-      const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
-      if (!tx || tx.meta?.err) continue;
+  let alphas = db.get('goldenAlphas').value() || [];
+  const existing = alphas.find(a => a.fullAddress === wallet);
+  const alphaData = {
+    address: wallet.slice(0,8) + "..." + wallet.slice(-4),
+    fullAddress: wallet,
+    score,
+    avgPosition: entry.avgPos.toFixed(1) + "%",
+    winRate: ((entry.wins / entry.total) * 100).toFixed(0) + "%",
+    volume24h: entry.volume.toFixed(1) + " SOL"
+  };
 
-      const hasJitoTip = tx.transaction.message.instructions.some(ix =>
-        ix.programId.toBase58() === "T1pyyaTNZsKv2WcRAB8oVnk93mLJw2Y8zZ7R8gVFf4px"
-      );
-      if (hasJitoTip) jitoCount++;
+  if (existing) Object.assign(existing, alphaData);
+  else alphas.push(alphaData);
 
-      const buy = tx.transaction.message.instructions.find(ix =>
-        ix.parsed?.type === "transfer" &&
-        ix.parsed?.info?.source === "So11111111111111111111111111111111111111112"
-      );
-
-      if (buy) {
-        totalTrades++;
-        const mint = buy.parsed.info.destination;
-        const amountSOL = parseFloat(buy.parsed.info.lamports) / LAMPORTS_PER_SOL;
-
-        try {
-          const priceRes = await fetch(`https://price.jup.ag/v6/price?ids=${mint}`);
-          const priceData = await priceRes.json();
-          const currentPrice = priceData.data[mint]?.price || 0;
-
-          if (currentPrice > amountSOL * 10 / 1000000) {
-            wins++;
-            totalProfit += currentPrice * 1000000 - amountSOL;
-            earlyCount++;
-          }
-        } catch (e) {}
-      }
-    }
-
-    if (totalTrades === 0) return;
-
-    const winRate = wins / totalTrades;
-    const avgPosScore = earlyCount / totalTrades;
-    const profitScore = Math.min(totalProfit / 1000, 10);
-    const jitoRate = jitoCount / signatures.length;
-
-    const score = (
-      winRate * 50 +
-      avgPosScore * 20 +
-      profitScore * 15 +
-      wins * 10 +
-      jitoRate * 5
-    ).toFixed(1);
-
-    if (score < 6.0) return;
-
-    let alphas = db.get('goldenAlphas').value() || [];
-    const existing = alphas.find(a => a.fullAddress === wallet);
-    const alphaData = {
-      address: wallet.slice(0,8) + "..." + wallet.slice(-4),
-      fullAddress: wallet,
-      score,
-      winRate: (winRate * 100).toFixed(0) + "%",
-      totalProfit: totalProfit.toFixed(1) + " SOL",
-      wins,
-      jitoRate: (jitoRate * 100).toFixed(0) + "%"
-    };
-
-    if (existing) Object.assign(existing, alphaData);
-    else alphas.push(alphaData);
-
-    alphas = alphas.sort((a,b) => b.score - a.score).slice(0,15);
-    db.set('goldenAlphas', alphas).write();
-    io.emit('goldenAlphasUpdate', alphas);
-
-    console.log(`TRUE ALPHA → ${wallet.slice(0,8)}... Score: ${score}`);
-    sendTelegram(`TRUE ALPHA DETECTED\n${wallet}\nScore: ${score} | Win Rate: ${winRate*100}%`);
-
-  } catch (e) {
-    console.error("Alpha scoring failed:", e.message);
-  }
+  alphas = alphas.sort((a,b) => b.score - a.score).slice(0,10);
+  db.set('goldenAlphas', alphas).write();
+  console.log(`GOLDEN ALPHA → ${wallet.slice(0,8)}... Score: ${score}`);
 }
 
 // EXTRACT FROM PAST MOONSHOT
@@ -233,9 +167,9 @@ async function extractAlphasFromCA(ca) {
       });
     }
 
-    Array.from(buyers).slice(0, 15).forEach(wallet => updateGoldenAlpha(wallet));
+    Array.from(buyers).slice(0, 15).forEach(wallet => updateGoldenAlpha(wallet, 1));
     db.get('pastMoonshots').push(ca).write();
-    sendTelegram(`EXTRACTION COMPLETE\nTop 15 early buyers added to Golden Alphas`);
+    sendTelegram(`EXTRACTION COMPLETE\nTop 15 early buyers added`);
   } catch (e) {
     console.error("CA extraction failed:", e.message);
   }
@@ -246,7 +180,7 @@ async function executeBuy(tokenMint, alphaWallet) {
   let pending = db.get(`pendingBuys.${tokenMint}`).value() || { count: 0, alphas: [], lastSeen: Date.now() };
   if (!pending.alphas.includes(alphaWallet)) {
     pending.alphas.push(alphaWallet);
-    pending.count = pending.alphas.length;
+    pending.count++;
     pending.lastSeen = Date.now();
     db.set(`pendingBuys.${tokenMint}`, pending).write();
   }
@@ -287,9 +221,7 @@ async function executeBuy(tokenMint, alphaWallet) {
         time: new Date().toISOString()
       }).write();
 
-      io.emit('newTrade', { token: tokenMint.slice(0,8), type: "BUY", amount: currentBuy, alphas: alphaCount, multiplier });
       sendTelegram(`BUY FIRED\nToken: ${tokenMint}\nAlphas: ${alphaCount} → ${multiplier}% TP\nSize: ${currentBuy} SOL`);
-
       db.unset(`pendingBuys.${tokenMint}`).write();
     } catch (e) {
       console.error("BUY FAILED:", e.message);
@@ -297,7 +229,7 @@ async function executeBuy(tokenMint, alphaWallet) {
   }
 }
 
-// AUTO-SELL + COMPOUNDING
+// AUTO-SELL
 setInterval(async () => {
   const positions = db.get('positions').value() || {};
   for (const [mint, pos] of Object.entries(positions)) {
@@ -319,46 +251,51 @@ setInterval(async () => {
           .unset(`positions.${mint}`)
           .write();
 
-        io.emit('sold', { token: mint.slice(0,8), profit: profitPct.toFixed(1), newBuyAmount: newBuyAmount.toFixed(3) });
         sendTelegram(`SOLD — TARGET HIT\nToken: ${mint.slice(0,8)}\nProfit: +${profitPct.toFixed(1)}% (${profitSOL.toFixed(3)} SOL)`);
       }
     } catch (e) {}
   }
 }, 8000);
 
-// SOCKET
-io.on('connection', (socket) => {
-  console.log("DASHBOARD CONNECTED →", socket.handshake.headers.origin);
-  socket.emit('init', {
+// HTTP API ENDPOINTS
+app.get('/api/data', (req, res) => {
+  res.json({
     trades: db.get('trades').take(50).value() || [],
     settings: db.get('settings').value() || {},
     positions: Object.values(db.get('positions').value() || {}),
+    watched: db.get('watched').value() || [],
     goldenAlphas: db.get('goldenAlphas').value() || [],
     totalProfit: db.get('totalProfit').value() || 0
   });
-
-  socket.on('addMoonshotCA', (ca) => {
-    extractAlphasFromCA(ca);
-  });
 });
 
-// WEBHOOK
-app.post('/webhook', (req, res) => {
-  req.body.forEach(tx => {
-    if (tx.type === "SWAP" && tx.tokenTransfers?.[0]?.mint && db.get('watched').value().includes(tx.feePayer)) {
-      executeBuy(tx.tokenTransfers[0].mint, tx.feePayer);
-    }
-  });
-  res.sendStatus(200);
+app.post('/api/add-ca', (req, res) => {
+  const { ca } = req.body;
+  if (!ca || ca.length < 32) return res.status(400).json({ error: "Invalid CA" });
+  extractAlphasFromCA(ca);
+  res.json({ success: true });
+});
+
+app.post('/api/wallet', (req, res) => {
+  const { wallet, action = "add" } = req.body;
+  if (action === "add") db.get('watched').push(wallet).write();
+  if (action === "remove") db.get('watched').pull(wallet).write();
+  res.json({ success: true });
+});
+
+app.post('/api/settings', (req, res) => {
+  const { buyAmount, slippage } = req.body;
+  db.update('settings', s => ({ ...s, buyAmount, slippage })).write();
+  res.json({ success: true });
 });
 
 // HEALTH
 app.get('/health', (req, res) => res.status(200).send('OK'));
-app.get('/', (req, res) => res.send('SolFollow v11 — TRUE ALPHA SCORING'));
+app.get('/', (req, res) => res.send('SolFollow v12 — HTTP API LIVE'));
 
 // START
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\nSOLFOLLOW v11 — LIVE ON PORT ${PORT}`);
-  console.log("Add past moonshot CAs → extracts true alphas → prints forever\n");
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\nSOLFOLLOW v12 — FINAL & COMPLETE`);
+  console.log(`Running on port ${PORT} — Dashboard ready\n`);
 });
