@@ -12,13 +12,17 @@ const db = low(adapter);
 const app = express();
 app.use(express.json());
 
-// ——— CORS — RAILWAY + VITE PROOF ———
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://sol-follow-production.up.railway.app";
+// ——— FINAL CORS + PREFLIGHT FIX (RAILWAY 2025) ———
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", FRONTEND_URL);
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.status(200).end();
+  res.header("Access-Control-Allow-Origin", process.env.FRONTEND_URL || "https://sol-follow-production.up.railway.app");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  res.header("Access-Control-Max-Age", "86400");
+
+  // THIS LINE IS THE KILLER — HANDLE PREFLIGHT INSTANTLY
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
   next();
 });
 
@@ -321,8 +325,20 @@ app.post('/api/add-ca', async (req, res) => {
 
 app.post('/api/wallet', (req, res) => {
   const { wallet, action = "add" } = req.body;
-  if (action === "add") db.get('watched').push(wallet).write();
-  if (action === "remove") db.get('watched').pull(wallet).write();
+
+  if (!wallet || wallet.length < 32) {
+    return res.status(400).json({ error: "Invalid wallet" });
+  }
+
+  if (action === "add") {
+    db.get('watched').push(wallet).write();
+    console.log(`WALLET ADDED → ${wallet.slice(0,8)}...`);
+  }
+  if (action === "remove") {
+    db.get('watched').pull(wallet).write();
+    console.log(`WALLET REMOVED → ${wallet.slice(0,8)}...`);
+  }
+
   res.json({ success: true });
 });
 
