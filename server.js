@@ -1,8 +1,7 @@
-// backend/server.js — SOLFOLLOW v13 — FINAL & IMMORTAL
+// backend/server.js — SOLFOLLOW v14 — FINAL & IMMORTAL (HTTP + FIRE-AND-FORGET)
 require('dotenv').config();
 const express = require('express');
-const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction, Transaction, SystemProgram } = require('@solana/web3.js');
-const bs58 = require('bs58');
+const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const fetch = require('node-fetch');
 const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
@@ -12,18 +11,13 @@ const db = low(adapter);
 const app = express();
 app.use(express.json());
 
-// ——— PERFECT CORS FOR RAILWAY + VITE (2025 META) ———
+// ——— CORS — RAILWAY + VITE PROOF ———
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://sol-follow-production.up.railway.app";
-
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", FRONTEND_URL);
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.header("Access-Control-Allow-Credentials", "true");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
   next();
 });
 
@@ -125,7 +119,7 @@ async function sendJitoBundle(transactions, tipLamports = 50000) {
 // ——— MULTIPLIER TABLE ———
 const MULTIPLIER_TABLE = {1:100,2:300,3:600,4:1000,5:1500,6:2100,7:2800,8:3600,9:4500,10:5500};
 
-// ——— GOLDEN ALPHA SCORING ———
+// ——— TRUE ALPHA SCORING ———
 function updateGoldenAlpha(wallet, position) {
   const stats = db.get('alphaStats').value() || {};
   const entry = stats[wallet] || { wins: 0, total: 0, avgPos: 0, volume: 0 };
@@ -161,30 +155,32 @@ function updateGoldenAlpha(wallet, position) {
   console.log(`GOLDEN ALPHA → ${wallet.slice(0,8)}... Score: ${score}`);
 }
 
-// ——— EXTRACT ALPHAS FROM PAST MOONSHOT ———
+// ——— EXTRACT ALPHAS FROM PAST MOONSHOT (BACKGROUND) ———
 async function extractAlphasFromCA(ca) {
   if (db.get('pastMoonshots').value().includes(ca)) return;
   console.log(`Extracting alphas from: ${ca.slice(0,8)}...`);
-  sendTelegram(`MOONSHOT ADDED\n${ca}\nExtracting early buyers...`);
+  sendTelegram(`MOONSHOT ADDED\n<code>${ca}</code>\nExtracting early buyers...`);
 
   try {
     const signatures = await connection.getSignaturesForAddress(new PublicKey(ca), { limit: 100 });
     const buyers = new Set();
 
-    for (const sig of signatures) {
-      const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
-      if (!tx || tx.meta?.err) continue;
+    for (const sig of signatures.slice(0, 50)) {
+      try {
+        const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
+        if (!tx || tx.meta?.err) continue;
 
-      tx.transaction.message.instructions.forEach(ix => {
-        if (ix.parsed?.type === "transfer" && ix.parsed?.info?.source === "So11111111111111111111111111111111111111112") {
-          buyers.add(ix.parsed.info.destination);
-        }
-      });
+        tx.transaction.message.instructions.forEach(ix => {
+          if (ix.parsed?.type === "transfer" && ix.parsed?.info?.source === "So11111111111111111111111111111111111111112") {
+            buyers.add(ix.parsed.info.destination);
+          }
+        });
+      } catch (e) { }
     }
 
-    Array.from(buyers).slice(0, 15).forEach(wallet => updateGoldenAlpha(wallet, 1));
+    Array.from(buyers).slice(0, 15).forEach((wallet, i) => updateGoldenAlpha(wallet, i + 1));
     db.get('pastMoonshots').push(ca).write();
-    sendTelegram(`EXTRACTION COMPLETE\nTop 15 early buyers added to Golden Alphas`);
+    sendTelegram(`EXTRACTION COMPLETE\nTop ${buyers.size} early buyers added to Golden Alphas`);
   } catch (e) {
     console.error("CA extraction failed:", e.message);
   }
@@ -272,7 +268,7 @@ setInterval(async () => {
   }
 }, 8000);
 
-// ——— HTTP API ENDPOINTS ———
+// ——— HTTP API — ALL ENDPOINTS FIRE-AND-FORGET ———
 app.get('/api/data', (req, res) => {
   res.json({
     trades: db.get('trades').take(50).value() || [],
@@ -287,11 +283,13 @@ app.get('/api/data', (req, res) => {
 app.post('/api/add-ca', async (req, res) => {
   const { ca } = req.body;
   if (!ca || ca.length < 32) return res.status(400).json({ error: "Invalid CA" });
-  if (db.get('pastMoonshots').value().includes(ca)) return res.json({ message: "Already processed" });
+  if (db.get('pastMoonshots').value().includes(ca)) return res.json({ message: "Already added" });
 
-  console.log(`MOONSHOT CA ADDED → ${ca.slice(0,8)}...`);
-  await extractAlphasFromCA(ca);
-  res.json({ success: true });
+  console.log(`CA ADDED → ${ca.slice(0,8)}...`);
+  res.json({ success: true, message: "Extraction started..." });
+
+  // Background — never blocks
+  extractAlphasFromCA(ca).catch(err => console.error("Background failed:", err));
 });
 
 app.post('/api/wallet', (req, res) => {
@@ -303,18 +301,17 @@ app.post('/api/wallet', (req, res) => {
 
 app.post('/api/settings', (req, res) => {
   const { buyAmount, slippage } = req.body;
-  db.update('settings', s => ({ ...s, buyAmount, slippage })).write();
+  db.update('settings', s => ({ ...s, buyAmount: Number(buyAmount), slippage: Number(slippage) })).write();
   res.json({ success: true });
 });
 
-// ——— HEALTH & ROOT ———
 app.get('/health', (req, res) => res.status(200).send('OK'));
-app.get('/', (req, res) => res.send('SolFollow v13 — CORS FIXED — LIVE'));
+app.get('/', (req, res) => res.send('SolFollow v14 — FINAL — PRINTING'));
 
 // ——— START ———
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\nSOLFOLLOW v13 — FINAL & IMMORTAL`);
-  console.log(`Running on port ${PORT}`);
+  console.log(`\nSOLFOLLOW v14 — FINAL & IMMORTAL`);
+  console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Frontend: ${FRONTEND_URL}\n`);
 });
