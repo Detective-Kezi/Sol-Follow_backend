@@ -1,4 +1,4 @@
-// backend/server.js — SOLFOLLOW v12 — FINAL & COMPLETE (HTTP API ONLY)
+// backend/server.js — SOLFOLLOW v13 — FINAL & IMMORTAL
 require('dotenv').config();
 const express = require('express');
 const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction, Transaction, SystemProgram } = require('@solana/web3.js');
@@ -12,7 +12,22 @@ const db = low(adapter);
 const app = express();
 app.use(express.json());
 
-// DATABASE
+// ——— PERFECT CORS FOR RAILWAY + VITE (2025 META) ———
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://sol-follow-production.up.railway.app";
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", FRONTEND_URL);
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+  next();
+});
+
+// ——— DATABASE ———
 db.defaults({
   settings: { baseBuyAmount: 0.5, currentBuyAmount: 0.5, slippage: 15, maxBuyAmount: 5 },
   watched: [],
@@ -25,7 +40,7 @@ db.defaults({
   alphaStats: {}
 }).write();
 
-// WALLET
+// ——— WALLET ———
 let botKeypair;
 try {
   const raw = process.env.BOT_PRIVATE_KEY.trim();
@@ -33,16 +48,16 @@ try {
   botKeypair = Keypair.fromSecretKey(secret);
   console.log("\nWallet loaded:", botKeypair.publicKey.toBase58());
 } catch (e) {
-  console.error("Invalid BOT_PRIVATE_KEY");
+  console.error("Invalid BOT_PRIVATE_KEY →", e.message);
   process.exit(1);
 }
 
-// RPC
+// ——— RPC ———
 const RPC_URL = process.env.RPC_URL || "https://api.mainnet-beta.solana.com";
 const connection = new Connection(RPC_URL, "confirmed");
 console.log("RPC Connected →", RPC_URL);
 
-// TELEGRAM
+// ——— TELEGRAM ———
 async function sendTelegram(message) {
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
   try {
@@ -54,7 +69,7 @@ async function sendTelegram(message) {
   } catch (e) { console.error("Telegram failed:", e.message); }
 }
 
-// JUPITER
+// ——— JUPITER QUOTE & SWAP ———
 async function getQuote(input, output, amount, slippage = 15) {
   const params = new URLSearchParams({
     inputMint: input,
@@ -80,7 +95,7 @@ async function getSwapTx(quote) {
   return res.json();
 }
 
-// JITO BUNDLE
+// ——— JITO BUNDLE ———
 async function sendJitoBundle(transactions, tipLamports = 50000) {
   const serialized = transactions.map(tx => tx.serialize().toString('base64'));
   const tipTx = new Transaction().add(
@@ -107,10 +122,10 @@ async function sendJitoBundle(transactions, tipLamports = 50000) {
   }
 }
 
-// MULTIPLIER TABLE
+// ——— MULTIPLIER TABLE ———
 const MULTIPLIER_TABLE = {1:100,2:300,3:600,4:1000,5:1500,6:2100,7:2800,8:3600,9:4500,10:5500};
 
-// TRUE ALPHA SCORING
+// ——— GOLDEN ALPHA SCORING ———
 function updateGoldenAlpha(wallet, position) {
   const stats = db.get('alphaStats').value() || {};
   const entry = stats[wallet] || { wins: 0, total: 0, avgPos: 0, volume: 0 };
@@ -146,7 +161,7 @@ function updateGoldenAlpha(wallet, position) {
   console.log(`GOLDEN ALPHA → ${wallet.slice(0,8)}... Score: ${score}`);
 }
 
-// EXTRACT FROM PAST MOONSHOT
+// ——— EXTRACT ALPHAS FROM PAST MOONSHOT ———
 async function extractAlphasFromCA(ca) {
   if (db.get('pastMoonshots').value().includes(ca)) return;
   console.log(`Extracting alphas from: ${ca.slice(0,8)}...`);
@@ -169,13 +184,13 @@ async function extractAlphasFromCA(ca) {
 
     Array.from(buyers).slice(0, 15).forEach(wallet => updateGoldenAlpha(wallet, 1));
     db.get('pastMoonshots').push(ca).write();
-    sendTelegram(`EXTRACTION COMPLETE\nTop 15 early buyers added`);
+    sendTelegram(`EXTRACTION COMPLETE\nTop 15 early buyers added to Golden Alphas`);
   } catch (e) {
     console.error("CA extraction failed:", e.message);
   }
 }
 
-// CONSENSUS BUY
+// ——— CONSENSUS BUY ———
 async function executeBuy(tokenMint, alphaWallet) {
   let pending = db.get(`pendingBuys.${tokenMint}`).value() || { count: 0, alphas: [], lastSeen: Date.now() };
   if (!pending.alphas.includes(alphaWallet)) {
@@ -229,7 +244,7 @@ async function executeBuy(tokenMint, alphaWallet) {
   }
 }
 
-// AUTO-SELL
+// ——— AUTO-SELL + COMPOUNDING ———
 setInterval(async () => {
   const positions = db.get('positions').value() || {};
   for (const [mint, pos] of Object.entries(positions)) {
@@ -257,7 +272,7 @@ setInterval(async () => {
   }
 }, 8000);
 
-// HTTP API ENDPOINTS
+// ——— HTTP API ENDPOINTS ———
 app.get('/api/data', (req, res) => {
   res.json({
     trades: db.get('trades').take(50).value() || [],
@@ -269,10 +284,13 @@ app.get('/api/data', (req, res) => {
   });
 });
 
-app.post('/api/add-ca', (req, res) => {
+app.post('/api/add-ca', async (req, res) => {
   const { ca } = req.body;
   if (!ca || ca.length < 32) return res.status(400).json({ error: "Invalid CA" });
-  extractAlphasFromCA(ca);
+  if (db.get('pastMoonshots').value().includes(ca)) return res.json({ message: "Already processed" });
+
+  console.log(`MOONSHOT CA ADDED → ${ca.slice(0,8)}...`);
+  await extractAlphasFromCA(ca);
   res.json({ success: true });
 });
 
@@ -289,36 +307,14 @@ app.post('/api/settings', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/add-ca', async (req, res) => {
-  const { ca } = req.body;
-  
-  if (!ca || ca.length < 32) {
-    return res.status(400).json({ error: "Invalid CA" });
-  }
-
-  if (db.get('pastMoonshots').value().includes(ca)) {
-    return res.json({ success: true, message: "Already processed" });
-  }
-
-  console.log(`MOONSHOT CA ADDED → ${ca.slice(0,8)}...`);
-  
-  // Start extraction (your existing function)
-  try {
-    await extractAlphasFromCA(ca);  // ← this calls your full Golden Alpha extractor
-    res.json({ success: true, message: "Extraction started..." });
-  } catch (e) {
-    console.error("Extraction failed:", e.message);
-    res.status(500).json({ error: "Extraction failed" });
-  }
-});
-
-// HEALTH
+// ——— HEALTH & ROOT ———
 app.get('/health', (req, res) => res.status(200).send('OK'));
-app.get('/', (req, res) => res.send('SolFollow v12 — HTTP API LIVE'));
+app.get('/', (req, res) => res.send('SolFollow v13 — CORS FIXED — LIVE'));
 
-// START
+// ——— START ———
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\nSOLFOLLOW v12 — FINAL & COMPLETE`);
-  console.log(`Running on port ${PORT} — Dashboard ready\n`);
+  console.log(`\nSOLFOLLOW v13 — FINAL & IMMORTAL`);
+  console.log(`Running on port ${PORT}`);
+  console.log(`Frontend: ${FRONTEND_URL}\n`);
 });
