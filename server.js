@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const bs58 = require('bs58');
 const fetch = require('node-fetch');
 const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
