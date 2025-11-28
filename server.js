@@ -102,10 +102,10 @@ async function getQuote(input, output, amount, slippage = 15) {
     slippageBps: (slippage * 100).toString(),
   });
 
+  // OFFICIAL MIRRORS — TRY EACH UNTIL ONE WORKS
   const urls = [
-    "https://quote-api.jup.ag/v6/quote",
-    "https://quote.jup.ag/v6/quote",
-    "https://quote-api.jup.ag/v6/quote" // fallback
+    "https://lite-api.jup.ag/swap/v1/quote",
+    "https://api.jup.ag/swap/v1/quote"
   ];
 
   for (const url of urls) {
@@ -113,17 +113,17 @@ async function getQuote(input, output, amount, slippage = 15) {
       const res = await axios.get(url + "?" + params, { timeout: 10000 });
       return res.data;
     } catch (e) {
-      console.log(`Trying next Jupiter mirror...`);
+      console.log(`Mirror ${url} failed, trying next...`);
     }
   }
 
-  throw new Error("All Jupiter mirrors failed");
+  throw new Error("All Jupiter mirrors failed — check RPC");
 }
 
 async function getSwapTx(quote) {
   const urls = [
-    "https://quote-api.jup.ag/v6/swap",
-    "https://quote.jup.ag/v6/swap"
+    "https://lite-api.jup.ag/swap/v1/swap",
+    "https://api.jup.ag/swap/v1/swap"
   ];
 
   for (const url of urls) {
@@ -132,10 +132,12 @@ async function getSwapTx(quote) {
         quoteResponse: quote,
         userPublicKey: botKeypair.publicKey.toBase58(),
         wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        dynamicSlippage: true
       }, { timeout: 15000 });
       return res.data;
     } catch (e) {
-      console.log(`Swap mirror failed, trying next...`);
+      console.log(`Swap mirror ${url} failed, trying next...`);
     }
   }
 
