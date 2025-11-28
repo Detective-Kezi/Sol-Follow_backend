@@ -352,6 +352,39 @@ app.post('/api/settings', (req, res) => {
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/', (req, res) => res.send('SolFollow v19 — FINAL & IMMORTAL'));
 
+// ——— TEST ENDPOINTS — ADD THIS TO TROUBLESHOOT ———
+app.get('/test/rpc', async (req, res) => {
+  try {
+    const slot = await connection.getSlot();
+    console.log("RPC TEST SUCCESS — Latest slot:", slot);
+    res.json({ success: true, slot });
+  } catch (e) {
+    console.error("RPC TEST FAILED:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/test/extract', async (req, res) => {
+  const { ca } = req.query;
+  if (!ca) return res.status(400).json({ error: "Add ?ca=your-ca to URL" });
+  await extractAlphasFromCA(ca);
+  res.json({ success: true });
+});
+
+app.get('/test/buy', async (req, res) => {
+  const { tokenMint, alphaWallet } = req.query;
+  if (!tokenMint || !alphaWallet) return res.status(400).json({ error: "Add ?tokenMint=...&alphaWallet=..." });
+  await executeBuy(tokenMint, alphaWallet);
+  res.json({ success: true });
+});
+
+app.get('/test/update-alpha', async (req, res) => {
+  const { wallet } = req.query;
+  if (!wallet) return res.status(400).json({ error: "Add ?wallet=your-wallet" });
+  updateGoldenAlpha(wallet, 1);
+  res.json({ success: true });
+});
+
 // ——— START ———
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
