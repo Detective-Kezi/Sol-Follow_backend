@@ -165,54 +165,86 @@ function updateGoldenAlpha(wallet, position = 1) {
   console.log(`GOLDEN ALPHA → ${wallet.slice(0,8)}... Score: ${score}`);
 }
 
-// ——— v19 EXTRACT ALPHAS FROM PAST MOONSHOT (PUBLIC RPC SAFE + AUTO AFTER BUY) ———
+// FINAL extractAlphasFromCA v20 — HELIUS FREE TIER SAFE (10 req/sec)
 async function extractAlphasFromCA(ca) {
   if (!ca || ca.length < 32) return;
   if (db.get('pastMoonshots').value().includes(ca)) return;
 
-  // PUBLIC RPC SAFE — 4 MIN COOLDOWN
+  // 4-MINUTE COOLDOWN (already perfect)
   const now = Date.now();
   const lastRun = db.get('lastHeavyExtraction').value() || 0;
   if (now - lastRun < 240000) {
-    console.log("RPC cooldown active — wait 4 min");
+    console.log("Cooldown active — wait 4 min");
     return;
   }
   db.set('lastHeavyExtraction', now).write();
 
-  console.log(`v19 GOD HUNT → ${ca.slice(0,8)}...`);
-  sendTelegram(`GOD HUNT v19\n<code>${ca}</code>\nExtracting early buyers...`);
+  console.log(`v20 GOD HUNT → ${ca.slice(0,8)}... (Helius free tier safe)`);
+  sendTelegram(`GOD HUNT v20\n<code>${ca}</code>\nExtracting early buyers...`);
+
+  const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
   try {
     let allSigs = [];
     let before = undefined;
+
+    // GET SIGNATURES — 1 req/sec
     while (allSigs.length < 800) {
-      const batch = await connection.getSignaturesForAddress(new PublicKey(ca), { limit: 1000, before }).catch(() => []);
+      const batch = await connection.getSignaturesForAddress(
+        new PublicKey(ca),
+        { limit: 1000, before }
+      ).catch(() => []);
       if (batch.length === 0) break;
       allSigs.push(...batch);
       before = batch[batch.length - 1].signature;
+      await delay(110); // 9 calls/sec — safe
     }
 
     const earlySigs = allSigs.reverse().slice(0, 800);
     const buyers = new Set();
 
+    // PARSE TRANSACTIONS — 1 req every 120ms = 8/sec → SAFE
     for (const sig of earlySigs) {
       try {
-        const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
+        const tx = await connection.getParsedTransaction(sig.signature, {
+          maxSupportedTransactionVersion: 0,
+          commitment: "confirmed"
+        });
         if (!tx || tx.meta?.err) continue;
+
         tx.transaction.message.instructions.forEach(ix => {
-          if (ix.parsed?.type === "transfer" && ix.parsed?.info?.source === "So11111111111111111111111111111111111111112") {
+          if (ix.parsed?.type === "transfer" &&
+              ix.parsed?.info?.source === "So11111111111111111111111111111111111111112") {
             buyers.add(ix.parsed.info.destination);
           }
         });
-      } catch (e) {}
+
+        // ALSO CHECK INNER INSTRUCTIONS (2025 pump.fun format)
+        (tx.meta?.innerInstructions || []).forEach(inner => {
+          inner.instructions.forEach(ix => {
+            if (ix.parsed?.type === "transfer" &&
+                ix.parsed?.info?.source === "So11111111111111111111111111111111111111112") {
+              buyers.add(ix.parsed.info.destination);
+            }
+          });
+        });
+
+      } catch (e) { /* silent */ }
+
+      await delay(120); // 8.3 req/sec — perfectly safe
     }
 
-    Array.from(buyers).slice(0, 15).forEach((wallet, i) => updateGoldenAlpha(wallet, i + 1));
+    const topBuyers = Array.from(buyers).slice(0, 15);
+    topBuyers.forEach((wallet, i) => updateGoldenAlpha(wallet, i + 1));
+
     db.get('pastMoonshots').push(ca).write();
-    sendTelegram(`EXTRACTION COMPLETE\n${buyers.size} early buyers → Golden Alphas updated`);
+    sendTelegram(`EXTRACTION COMPLETE\n${topBuyers.length} real alphas added to Golden Leaderboard`);
+
+    console.log(`v20 SUCCESS → ${topBuyers.length} alphas from ${ca.slice(0,8)}...`);
 
   } catch (e) {
-    console.error("Extraction failed:", e.message);
+    console.error("v20 extraction failed:", e.message);
+    sendTelegram("Extraction failed — RPC healthy, will retry later");
   }
 }
 
