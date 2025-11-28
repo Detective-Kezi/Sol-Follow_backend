@@ -95,6 +95,7 @@ async function getSwapTx(quote) {
       wrapAndUnwrapSol: true,
     }),
   });
+  if (!res.ok) throw new Error("Swap failed");
   return res.json();
 }
 
