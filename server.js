@@ -3,7 +3,6 @@ require('dotenv').config();
 const express = require('express');
 const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction, Transaction, SystemProgram } = require('@solana/web3.js');
 const bs58 = require('bs58');
-const find = require('node-fetch');
 const low = require('lowdb');
 const FileSync = require('lowdb/adapters/FileSync');
 const adapter = new FileSync('data.json');
@@ -65,7 +64,7 @@ console.log("RPC Connected →", RPC_URL);
 async function sendTelegram(message) {
   if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
   try {
-    await find(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message, parse_mode: "HTML" })
@@ -81,13 +80,13 @@ async function getQuote(input, output, amount, slippage = 15) {
     amount: amount.toString(),
     slippageBps: (slippage * 100).toString(),
   });
-  const res = await find("https://quote-api.jup.ag/v6/quote?" + params);
+  const res = await fetch("https://quote-api.jup.ag/v6/quote?" + params);
   if (!res.ok) throw new Error("Quote failed");
   return res.json();
 }
 
 async function getSwapTx(quote) {
-  const res = await find("https://quote-api.jup.ag/v6/swap", {
+  const res = await fetch("https://quote-api.jup.ag/v6/swap", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -113,7 +112,7 @@ async function sendJitoBundle(transactions, tipLamports = 50000) {
   serialized.push(tipTx.serialize().toString('base64'));
 
   try {
-    const res = await find("https://mainnet.block-engine.jito.wtf/api/v1/bundles", {
+    const res = await fetch("https://mainnet.block-engine.jito.wtf/api/v1/bundles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sendBundle", params: [serialized] })
