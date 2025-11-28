@@ -102,34 +102,44 @@ async function getQuote(input, output, amount, slippage = 15) {
     slippageBps: (slippage * 100).toString(),
   });
 
-  try {
-    const response = await axios.get("https://quote-api.jup.ag/v6/quote?" + params, {
-      timeout: 10000, // 10 second timeout
-      headers: {
-        'User-Agent': 'SolFollowBot/1.0'
-      }
-    });
+  const urls = [
+    "https://quote-api.jup.ag/v6/quote",
+    "https://quote.jup.ag/v6/quote",
+    "https://quote-api.jup.ag/v6/quote" // fallback
+  ];
 
-    return response.data;
-  } catch (error) {
-    const msg = error.response 
-      ? `Jupiter API error: ${error.response.status} ${error.response.data?.error || ''}`
-      : error.code === 'ECONNABORTED' 
-        ? 'Jupiter timeout' 
-        : `Network error: ${error.message}`;
-    
-    console.error("getQuote FAILED →", msg);
-    throw new Error(msg);
+  for (const url of urls) {
+    try {
+      const res = await axios.get(url + "?" + params, { timeout: 10000 });
+      return res.data;
+    } catch (e) {
+      console.log(`Trying next Jupiter mirror...`);
+    }
   }
+
+  throw new Error("All Jupiter mirrors failed");
 }
 
 async function getSwapTx(quote) {
-  const res = await axios.post("https://quote-api.jup.ag/v6/swap", {
-    quoteResponse: quote,
-    userPublicKey: botKeypair.publicKey.toBase58(),
-    wrapAndUnwrapSol: true,
-  }, { timeout: 15000 });
-  return res.data;
+  const urls = [
+    "https://quote-api.jup.ag/v6/swap",
+    "https://quote.jup.ag/v6/swap"
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await axios.post(url, {
+        quoteResponse: quote,
+        userPublicKey: botKeypair.publicKey.toBase58(),
+        wrapAndUnwrapSol: true,
+      }, { timeout: 15000 });
+      return res.data;
+    } catch (e) {
+      console.log(`Swap mirror failed, trying next...`);
+    }
+  }
+
+  throw new Error("All Jupiter swap mirrors failed");
 }
 
 // ——— JITO BUNDLE ———
