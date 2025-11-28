@@ -4,6 +4,7 @@ const express = require('express');
 const { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction, Transaction, SystemProgram } = require('@solana/web3.js');
 const bs58 = require('bs58');
 const low = require('lowdb');
+const axios = require('axios');
 const FileSync = require('lowdb/adapters/FileSync');
 const adapter = new FileSync('data.json');
 const db = low(adapter);
@@ -62,14 +63,34 @@ console.log("RPC Connected →", RPC_URL);
 
 // ——— TELEGRAM ———
 async function sendTelegram(message) {
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return;
+  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+    console.log("Telegram not configured — skipping message");
+    return;
+  }
+
   try {
-    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text: message, parse_mode: "HTML" })
-    });
-  } catch (e) { console.error("Telegram failed:", e.message); }
+    await axios.post(
+      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        chat_id: process.env.TELEGRAM_CHAT_ID,
+        text: message,
+        parse_mode: "HTML",
+        disable_web_page_preview: true
+      },
+      {
+        timeout: 8000,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+    console.log("Telegram sent");
+  } catch (error) {
+    const errMsg = error.response 
+      ? `Telegram error: ${error.response.status} ${error.response.data?.description || ''}`
+      : error.code === 'ECONNABORTED' 
+        ? 'Telegram timeout' 
+        : `Telegram failed: ${error.message}`;
+    console.error(errMsg);
+  }
 }
 
 // ——— JUPITER ———
@@ -82,35 +103,33 @@ async function getQuote(input, output, amount, slippage = 15) {
   });
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-    const res = await fetch("https://quote-api.jup.ag/v6/quote?" + params, {
-      signal: controller.signal
+    const response = await axios.get("https://quote-api.jup.ag/v6/quote?" + params, {
+      timeout: 10000, // 10 second timeout
+      headers: {
+        'User-Agent': 'SolFollowBot/1.0'
+      }
     });
 
-    clearTimeout(timeout);
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}: Quote failed`);
-    return res.json();
-  } catch (e) {
-    console.error("getQuote failed:", e.message);
-    throw e;
+    return response.data;
+  } catch (error) {
+    const msg = error.response 
+      ? `Jupiter API error: ${error.response.status} ${error.response.data?.error || ''}`
+      : error.code === 'ECONNABORTED' 
+        ? 'Jupiter timeout' 
+        : `Network error: ${error.message}`;
+    
+    console.error("getQuote FAILED →", msg);
+    throw new Error(msg);
   }
 }
 
 async function getSwapTx(quote) {
-  const res = await fetch("https://quote-api.jup.ag/v6/swap", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      quoteResponse: quote,
-      userPublicKey: botKeypair.publicKey.toBase58(),
-      wrapAndUnwrapSol: true,
-    }),
-  });
-  if (!res.ok) throw new Error("Swap failed");
-  return res.json();
+  const res = await axios.post("https://quote-api.jup.ag/v6/swap", {
+    quoteResponse: quote,
+    userPublicKey: botKeypair.publicKey.toBase58(),
+    wrapAndUnwrapSol: true,
+  }, { timeout: 15000 });
+  return res.data;
 }
 
 // ——— JITO BUNDLE ———
