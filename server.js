@@ -376,13 +376,14 @@ app.post('/api/add-ca', async (req, res) => {
   extractAlphasFromCA(ca).catch(() => {});
 });
 
-app.post('/api/wallet', (req, res) => {
+app.post('/api/wallet', async (req, res) => {
   const { wallet, action = "add" } = req.body;
 
   if (!wallet || wallet.length < 32) {
     return res.status(400).json({ error: "Invalid wallet" });
   }
 
+  // Save to data.json
   if (action === "add") {
     db.get('watched').push(wallet).write();
     console.log(`WALLET ADDED → ${wallet.slice(0,8)}...`);
@@ -392,6 +393,9 @@ app.post('/api/wallet', (req, res) => {
     console.log(`WALLET REMOVED → ${wallet.slice(0,8)}...`);
   }
 
+  // AUTOMATIC HELIUS SYNC — CALL PATCH API
+  await syncHeliusWebhook().catch(err => console.error("Helius sync failed:", err));
+
   res.json({ success: true });
 });
 
@@ -400,6 +404,33 @@ app.post('/api/settings', (req, res) => {
   db.update('settings', s => ({ ...s, buyAmount: Number(buyAmount), slippage: Number(slippage) })).write();
   res.json({ success: true });
 });
+
+// AUTOMATIC HELIUS SYNC — UPDATE WATCHED ALPHAS
+async function syncHeliusWebhook() {
+  const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+  const WEBHOOK_ID = process.env.WEBHOOK_ID;
+  const watched = db.get('watched').value();
+
+  if (!HELIUS_API_KEY || !WEBHOOK_ID) {
+    console.log("Helius sync skipped — no API key or webhook ID");
+    return;
+  }
+
+  try {
+    await axios.patch(`https://api.helius.xyz/v0/webhooks/${WEBHOOK_ID}`, {
+      accountAddresses: watched, // ← YOUR WATCHED LIST
+      transactionTypes: ["SWAP"], // ← Only swaps
+      webhookType: "enhanced"
+    }, {
+      headers: { "Authorization": `Bearer ${HELIUS_API_KEY}` }
+    });
+
+    console.log(`HELIUS SYNC COMPLETE → ${watched.length} alphas monitored`);
+    sendTelegram(`HELIUS SYNCED\n${watched.length} alphas now monitored`);
+  } catch (error) {
+    console.error("Helius sync failed:", error.response?.data || error.message);
+  }
+}
 
 // ——— HEALTH ———
 app.get('/health', (req, res) => res.status(200).send('OK'));
@@ -445,3 +476,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
