@@ -358,6 +358,42 @@ setInterval(async () => {
 }, 8000);
 
 // ——— HTTP API ———
+// AUTOMATIC HELIUS SYNC — UPDATE WATCHED ALPHAS
+// FINAL syncHeliusWebhook() — CORRECT AUTH HEADER (NO BASIC)
+async function syncHeliusWebhook() {
+  const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+  const WEBHOOK_ID = process.env.WEBHOOK_ID;
+  const watched = db.get('watched').value();
+
+  if (!HELIUS_API_KEY || !WEBHOOK_ID || watched.length === 0) {
+    console.log("Helius sync skipped — missing config or empty list");
+    return;
+  }
+
+  try {
+    const response = await axios.patch(
+      `https://api.helius.xyz/v0/webhooks/${WEBHOOK_ID}`,
+      {
+        accountAddresses: watched,
+        transactionTypes: ["SWAP"],
+        webhookType: "enhanced"
+      },
+      {
+        headers: {
+          "Authorization": `Bearer ${HELIUS_API_KEY}`,  // ← BEARER ONLY, NO BASIC
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    console.log(`HELIUS SYNC SUCCESS → ${watched.length} alphas monitored`);
+    sendTelegram(`HELIUS SYNCED\n${watched.length} alphas now live`);
+  } catch (error) {
+    console.error("Helius sync failed:", error.response?.data || error.message);
+    sendTelegram(`Helius sync failed: ${error.response?.data?.error || error.message}`);
+  }
+}
+
 app.get('/api/data', (req, res) => {
   res.json({
     trades: db.get('trades').take(50).value() || [],
@@ -405,33 +441,6 @@ app.post('/api/settings', (req, res) => {
   res.json({ success: true });
 });
 
-// AUTOMATIC HELIUS SYNC — UPDATE WATCHED ALPHAS
-async function syncHeliusWebhook() {
-  const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
-  const WEBHOOK_ID = process.env.WEBHOOK_ID;
-  const watched = db.get('watched').value();
-
-  if (!HELIUS_API_KEY || !WEBHOOK_ID) {
-    console.log("Helius sync skipped — no API key or webhook ID");
-    return;
-  }
-
-  try {
-    await axios.patch(`https://api.helius.xyz/v0/webhooks/${WEBHOOK_ID}`, {
-      accountAddresses: watched, // ← YOUR WATCHED LIST
-      transactionTypes: ["SWAP"], // ← Only swaps
-      webhookType: "enhanced"
-    }, {
-      headers: { "Authorization": `Bearer ${HELIUS_API_KEY}` }
-    });
-
-    console.log(`HELIUS SYNC COMPLETE → ${watched.length} alphas monitored`);
-    sendTelegram(`HELIUS SYNCED\n${watched.length} alphas now monitored`);
-  } catch (error) {
-    console.error("Helius sync failed:", error.response?.data || error.message);
-  }
-}
-
 // ——— HEALTH ———
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/', (req, res) => res.send('SolFollow v19 — FINAL & IMMORTAL'));
@@ -476,4 +485,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
 
