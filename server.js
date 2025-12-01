@@ -358,15 +358,14 @@ setInterval(async () => {
 }, 8000);
 
 // ——— HTTP API ———
-// AUTOMATIC HELIUS SYNC — UPDATE WATCHED ALPHAS
-// FINAL syncHeliusWebhook() — CORRECT AUTH HEADER (NO BASIC)
+// FINAL syncHeliusWebhook() — BEARER AUTH (DOCS CORRECT)
 async function syncHeliusWebhook() {
   const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
   const WEBHOOK_ID = process.env.WEBHOOK_ID;
   const watched = db.get('watched').value();
 
   if (!HELIUS_API_KEY || !WEBHOOK_ID || watched.length === 0) {
-    console.log("Helius sync skipped — missing config or empty list");
+    console.log("Helius sync skipped — missing config");
     return;
   }
 
@@ -380,17 +379,16 @@ async function syncHeliusWebhook() {
       },
       {
         headers: {
-          "Authorization": `Bearer ${HELIUS_API_KEY}`,  // ← BEARER ONLY, NO BASIC
+          "Authorization": `Bearer ${HELIUS_API_KEY}`,  // ← BEARER, NO BASIC
           "Content-Type": "application/json"
         }
       }
     );
 
-    console.log(`HELIUS SYNC SUCCESS → ${watched.length} alphas monitored`);
-    sendTelegram(`HELIUS SYNCED\n${watched.length} alphas now live`);
+    console.log(`HELIUS SYNC SUCCESS → ${watched.length} alphas live`);
+    sendTelegram(`HELIUS SYNCED\n${watched.length} alphas now monitored`);
   } catch (error) {
     console.error("Helius sync failed:", error.response?.data || error.message);
-    sendTelegram(`Helius sync failed: ${error.response?.data?.error || error.message}`);
   }
 }
 
@@ -485,5 +483,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
 
 
