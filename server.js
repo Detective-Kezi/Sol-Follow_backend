@@ -293,7 +293,7 @@ async function executeBuy(tokenMint, alphaWallet) {
   const multiplier = MULTIPLIER_TABLE[alphaCount] || 5500;
   const position = db.get(`positions.${tokenMint}`).value();
 
-  if (!position && alphaCount >= 1) {
+  if (!position && alphaCount >= 2) {
     const currentBuy = db.get('settings.currentBuyAmount').value() || 0.5;
     console.log(`CONSENSUS BUY — ${alphaCount} ALPHAS → ${multiplier}% TP → ${currentBuy} SOL`);
 
@@ -535,6 +535,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
 
 
 
