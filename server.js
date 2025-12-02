@@ -363,7 +363,7 @@ setInterval(async () => {
 }, 8000);
 
 // ——— HTTP API ———
-// FINAL syncHeliusWebhook() — BASIC AUTH + API KEY QUERY (DOCS EXACT)
+// FINAL syncHeliusWebhook() — PUT + API KEY QUERY (DOCS EXACT)
 async function syncHeliusWebhook() {
   const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
   const WEBHOOK_ID = process.env.WEBHOOK_ID;
@@ -375,11 +375,8 @@ async function syncHeliusWebhook() {
   }
 
   try {
-    // BASIC AUTH — base64(username:password) — use dummy for username
-    const basicAuth = Buffer.from(`dummy:${HELIUS_API_KEY}`).toString('base64');
-
-    const response = await axios.patch(
-      `https://api.helius.xyz/v0/webhooks/${WEBHOOK_ID}?api-key=${HELIUS_API_KEY}`,  // ← API KEY AS QUERY
+    const response = await axios.put(
+      `https://api.helius.xyz/v0/webhooks/${WEBHOOK_ID}?api-key=${HELIUS_API_KEY}`,  // ← QUERY PARAM ONLY
       {
         accountAddresses: watched,
         transactionTypes: ["SWAP"],
@@ -387,7 +384,6 @@ async function syncHeliusWebhook() {
       },
       {
         headers: {
-          "Authorization": `Basic ${basicAuth}`,  // ← BASIC AUTH, NOT BEARER
           "Content-Type": "application/json"
         }
       }
@@ -528,6 +524,12 @@ app.get('/test/update-alpha', async (req, res) => {
   res.json({ success: true });
 });
 
+// TEST TELEGRAM — INSTANT
+app.get('/test/telegram', async (req, res) => {
+  await sendTelegram("TELEGRAM TEST SUCCESS — YOUR BOT IS ALIVE");
+  res.json({ success: true });
+});
+
 // ——— START ———
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
@@ -535,6 +537,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
 
 
 
