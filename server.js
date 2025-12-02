@@ -363,7 +363,7 @@ setInterval(async () => {
 }, 8000);
 
 // ——— HTTP API ———
-// FINAL syncHeliusWebhook() — PUT + API KEY QUERY (DOCS EXACT)
+// FINAL syncHeliusWebhook() — QUERY PARAM ONLY (DOCS EXACT)
 async function syncHeliusWebhook() {
   const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
   const WEBHOOK_ID = process.env.WEBHOOK_ID;
@@ -378,6 +378,7 @@ async function syncHeliusWebhook() {
     const response = await axios.put(
       `https://api.helius.xyz/v0/webhooks/${WEBHOOK_ID}?api-key=${HELIUS_API_KEY}`,  // ← QUERY PARAM ONLY
       {
+        webhookURL: "https://sol-followbackend-production.up.railway.app/webhook",  // ← REQUIRED
         accountAddresses: watched,
         transactionTypes: ["SWAP"],
         webhookType: "enhanced"
@@ -385,7 +386,7 @@ async function syncHeliusWebhook() {
       {
         headers: {
           "Content-Type": "application/json"
-        }
+        }  // ← NO AUTH HEADER
       }
     );
 
@@ -537,6 +538,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
 
 
 
