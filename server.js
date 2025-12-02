@@ -158,16 +158,21 @@ async function sendJitoBundle(transactions, tipLamports = 50000) {
   serialized.push(tipTx.serialize().toString('base64'));
 
   try {
-    const res = await fetch("https://mainnet.block-engine.jito.wtf/api/v1/bundles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sendBundle", params: [serialized] })
+    const response = await axios.post("https://mainnet.block-engine.jito.wtf/api/v1/bundles", {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "sendBundle",
+      params: [serialized]
+    }, {
+      timeout: 20000,
+      headers: { "Content-Type": "application/json" }
     });
-    const json = await res.json();
-    console.log("JITO BUNDLE →", json.result || json.error?.message);
-    return json.result;
+
+    console.log("JITO BUNDLE SUCCESS →", response.data.result || response.data.error);
+    return response.data.result;
   } catch (e) {
-    console.error("Jito failed:", e.message);
+    console.error("JITO BUNDLE FAILED →", e.response?.data || e.message);
+    return null;
   }
 }
 
@@ -530,6 +535,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
 
 
 
