@@ -358,7 +358,7 @@ setInterval(async () => {
 }, 8000);
 
 // ——— HTTP API ———
-// FINAL syncHeliusWebhook() — BEARER AUTH (DOCS CORRECT)
+// FINAL syncHeliusWebhook() — BASIC AUTH + API KEY QUERY (DOCS EXACT)
 async function syncHeliusWebhook() {
   const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
   const WEBHOOK_ID = process.env.WEBHOOK_ID;
@@ -370,8 +370,11 @@ async function syncHeliusWebhook() {
   }
 
   try {
+    // BASIC AUTH — base64(username:password) — use dummy for username
+    const basicAuth = Buffer.from(`dummy:${HELIUS_API_KEY}`).toString('base64');
+
     const response = await axios.patch(
-      `https://api.helius.xyz/v0/webhooks/${WEBHOOK_ID}`,
+      `https://api.helius.xyz/v0/webhooks/${WEBHOOK_ID}?api-key=${HELIUS_API_KEY}`,  // ← API KEY AS QUERY
       {
         accountAddresses: watched,
         transactionTypes: ["SWAP"],
@@ -379,7 +382,7 @@ async function syncHeliusWebhook() {
       },
       {
         headers: {
-          "Authorization": `Bearer ${HELIUS_API_KEY}`,  // ← BEARER, NO BASIC
+          "Authorization": `Basic ${basicAuth}`,  // ← BASIC AUTH, NOT BEARER
           "Content-Type": "application/json"
         }
       }
@@ -439,6 +442,50 @@ app.post('/api/settings', (req, res) => {
   res.json({ success: true });
 });
 
+// ——— HELIUS WEBHOOK — THE ONE THAT WAS MISSING ———
+app.post('/webhook', async (req, res) => {
+  console.log("HELIUS WEBHOOK HIT — PAYLOAD RECEIVED");
+  console.log("Transactions count:", req.body.length);
+
+  try {
+    // Helius sends an array of transactions
+    for (const tx of req.body) {
+      console.log(`Processing tx type: ${tx.type} | feePayer: ${tx.feePayer?.slice(0,8)}...`);
+
+      // Only care about SWAPs
+      if (tx.type === "SWAP" && tx.tokenTransfers?.length > 0) {
+        const mint = tx.tokenTransfers[0].mint;
+        const feePayer = tx.feePayer;
+
+        // CHECK IF THIS IS ONE OF OUR WATCHED ALPHAS
+        if (db.get('watched').value().includes(feePayer)) {
+          console.log(`ALPHA DETECTED → ${feePayer.slice(0,8)}... BUYING ${mint.slice(0,8)}...`);
+          sendTelegram(`ALPHA BUY DETECTED\nWallet: <code>${feePayer}</code>\nToken: <code>${mint}</code>`);
+
+          // Fire the buy
+          executeBuy(mint, feePayer);
+        } else {
+          console.log(`Unknown wallet bought — skipping`);
+        }
+      }
+    }
+
+    // Always respond 200 OK so Helius doesn't retry
+    res.status(200).json({ success: true });
+  } catch (e) {
+    console.error("Webhook processing error:", e.message);
+    res.status(500).json({ error: "Internal error" });
+  }
+});
+
+// Handle OPTIONS preflight for /webhook
+app.options('/webhook', (req, res) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.status(200).end();
+});
+
 // ——— HEALTH ———
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/', (req, res) => res.send('SolFollow v19 — FINAL & IMMORTAL'));
@@ -483,6 +530,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
 
 
 
