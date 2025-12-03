@@ -444,6 +444,23 @@ app.post('/api/settings', (req, res) => {
   res.json({ success: true });
 });
 
+// AUTO-ADD GOLDEN CABAL GHOSTS FROM TELEGRAM BOT
+app.post('/api/auto-add-ghosts', async (req, res) => {
+  const { ghosts } = req.body;
+  if (!ghosts || !Array.isArray(ghosts)) return res.status(400).json({ error: "Invalid" });
+
+  ghosts.forEach(wallet => {
+    if (!db.get('watched').value().includes(wallet)) {
+      db.get('watched').push(wallet).write();
+      console.log(`GOLDEN CABAL GHOST ADDED → ${wallet.slice(0,8)}...`);
+    }
+  });
+
+  await syncHeliusWebhook();
+  sendTelegram(`GOLDEN CABAL GHOSTS CROWNED & ADDED\n${ghosts.length} new immortals`);
+  res.json({ success: true });
+});
+
 // ——— HELIUS WEBHOOK — THE ONE THAT WAS MISSING ———
 app.post('/webhook', async (req, res) => {
   console.log("HELIUS WEBHOOK HIT — PAYLOAD RECEIVED");
@@ -538,6 +555,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Running on port ${PORT} — Dashboard ready`);
   console.log(`Add CA → extracts alphas → auto-follows → prints forever\n`);
 });
+
 
 
 
