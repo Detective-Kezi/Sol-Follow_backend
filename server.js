@@ -1,5 +1,9 @@
-// backend/server.js — v28 FINAL — CLEAN, MODULAR, PRINTING FOREVER
+// backend/server.js — v28.2 FINAL — MODULAR & IMMORTAL (WALLET INIT FIXED)
 require('dotenv').config();
+
+// ——— INIT WALLET FIRST — MUST BE BEFORE ANYTHING ———
+require('./config').initWallet();  // ← THIS WAS MISSING — NOW FIXED
+
 const express = require('express');
 const app = express();
 app.use(express.json());
@@ -17,7 +21,7 @@ app.use((req, res, next) => {
 const db = require('./db');
 const { sendTelegram } = require('./alphas');
 const { executeBuy, startAutoSell } = require('./trading');
-const { syncHeliusWebhook, extractAlphasFromCA } = require('./alphas');
+const { syncHeliusWebhook, extractAlphasFromCA, syncHeliusOnStartup } = require('./alphas');
 
 // ——— API ROUTES ———
 app.get('/api/data', (req, res) => {
@@ -60,7 +64,7 @@ app.post('/webhook', (req, res) => {
   for (const tx of req.body) {
     if (tx.type !== "SWAP" || !tx.tokenTransfers?.length) continue;
     const mint = tx.tokenTransfers[0].mint;
-    if (mint === "So11111111111111111111111111111111111111112") continue; // ignore WSOL
+    if (mint === "So11111111111111111111111111111111111111112") continue;
     if (db.get('watched').value().includes(tx.feePayer)) {
       console.log(`ALPHA BUY → ${tx.feePayer.slice(0,8)}... → ${mint.slice(0,8)}...`);
       sendTelegram(`ALPHA BUY\n<code>${tx.feePayer}</code>\nToken: <code>${mint}</code>`);
@@ -74,17 +78,14 @@ app.options('/webhook', (req, res) => res.status(200).end());
 
 // ——— HEALTH & ROOT ———
 app.get('/health', (req, res) => res.status(200).send('OK'));
-app.get('/', (req, res) => res.send('SolFollow v28 — MODULAR & IMMORTAL'));
+app.get('/', (req, res) => res.send('SolFollow v28.2 — FINAL & IMMORTAL'));
 
 // ——— START ———
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\nSOLFOLLOW v28 — FINAL MODULAR BOT LIVE ON PORT ${PORT}`);
-  console.log(`Webhooks, sniping, compounding — ALL ACTIVE\n`);
+  console.log(`\nSOLFOLLOW v28.2 — FINAL MODULAR BOT LIVE ON PORT ${PORT}`);
+  console.log(`Wallet, Helius, Trading — ALL ACTIVE\n`);
   
-  // Start auto-sell loop
   startAutoSell();
-  
-  // Sync Helius on boot
-  syncHeliusWebhook();
+  syncHeliusOnStartup();
 });
