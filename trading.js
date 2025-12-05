@@ -143,29 +143,36 @@ async function executeBuy(tokenMint, alphaWallet) {
 
 // ——— AUTO-SELL LOOP ———
 function startAutoSell() {
-  setInterval(async () => {
-    const positions = db.get('positions').value() || {};
-    for (const [mint, pos] of Object.entries(positions)) {
-      try {
-        const quote = await getQuote(mint, "So11111111111111111111111111111111111111112", BigInt(pos.amount * 1e9), 100);
-        const currentPrice = Number(quote.outAmount) / LAMPORTS_PER_SOL;
-        const profitPct = ((currentPrice - pos.avgBuyPrice) / pos.avgBuyPrice) * 100;
-        if (profitPct >= pos.targetMultiplier) {
-          const swapData = await getSwapTx(quote);
-          const tx = VersionedTransaction.deserialize(Buffer.from(swapData.swapTransaction, "base64"));
-          tx.sign([botKeypair]);
-          await sendJitoBundle([tx], 30000);
-          const profitSOL = (currentPrice - pos.avgBuyPrice) * pos.amount;
-          const newBuyAmount = Math.min(db.get('settings.currentBuyAmount').value() + (profitSOL * 0.profile0.5), 5);
-          db.set('settings.currentBuyAmount', parseFloat(newBuyAmount.toFixed(3)))
-            .set('totalProfit', (db.get('totalProfit').value() || 0) + profitSOL)
-            .unset(`positions.${mint}`)
-            .write();
-          sendTelegram(`SOLD — TARGET HIT\nToken: ${mint.slice(0,8)}\nProfit: +${profitPct.toFixed(1)}% (${profitSOL.toFixed(3)} SOL)`);
-        }
-      } catch (e) {}
+setInterval(async () => {
+  const positions = db.get('positions').value() || {};
+  for (const [mint, pos] of Object.entries(positions)) {
+    try {
+      const quote = await getQuote(mint, "So11111111111111111111111111111111111111112", BigInt(pos.amount * 1e9), 100);
+      const currentPrice = Number(quote.outAmount) / LAMPORTS_PER_SOL;
+      const profitPct = ((currentPrice - pos.avgBuyPrice) / pos.avgBuyPrice) * 100;
+
+      if (profitPct >= pos.targetMultiplier) {
+        const swapData = await getSwapTx(quote);
+        const tx = VersionedTransaction.deserialize(Buffer.from(swapData.swapTransaction, "base64"));
+        tx.sign([botKeypair]);
+        await sendJitoBundle([tx], 30000);
+
+        const profitSOL = (currentPrice - pos.avgBuyPrice) * pos.amount;
+        const newBuyAmount = Math.min(db.get('settings.currentBuyAmount').value() + (profitSOL * 0.5), 5);
+
+        db.set('settings.currentBuyAmount', parseFloat(newBuyAmount.toFixed(3)))
+          .set('totalProfit', (db.get('totalProfit').value() || 0) + profitSOL)
+          .unset(`positions.${mint}`)
+          .write();
+
+        sendTelegram(`SOLD — TARGET HIT\nToken: ${mint.slice(0,8)}\nProfit: +${profitPct.toFixed(1)}% (${profitSOL.toFixed(3)} SOL)`);
+      }
+    } catch (e) {
+      // Silent — don't crash the loop
     }
-  }, 8000);
+  }
+}, 8000);
+  
 }
 
 module.exports = {
