@@ -106,7 +106,7 @@ async function executeBuy(tokenMint, alphaWallet) {
 
   if (!(await hasEnoughBalance(currentBuy))) {
     console.log("BUY SKIPPED — LOW BALANCE");
-    sendTelegram(`BUY SKIPPED — LOW BALANCE\nNeed ${(currentBuy + 0.003).toFixed(4} SOL`);
+    sendTelegram(`BUY SKIPPED — LOW BALANCE\nNeed ${(currentBuy + 0.003).toFixed(4)} SOL`);
     return;
   }
 
