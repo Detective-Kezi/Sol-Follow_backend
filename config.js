@@ -45,8 +45,8 @@ async function sendTelegram(message) {
 
 module.exports = {
   initWallet,
-  botKeypair: () => botKeypair,
-  connection: () => connection,
+  get botKeypair() { return botKeypair; },     // ← getter
+  get connection() { return connection; },     // ← getter — always fresh
   sendTelegram,
   LAMPORTS_PER_SOL
 };
