@@ -19,7 +19,7 @@ app.use((req, res, next) => {
 
 // ——— MODULES ———
 const db = require('./db');
-const { sendTelegram } = require('./alphas');
+const { sendTelegram } = require('./config');
 const { executeBuy, startAutoSell } = require('./trading');
 const { syncHeliusWebhook, extractAlphasFromCA, syncHeliusOnStartup } = require('./alphas');
 
@@ -89,3 +89,4 @@ app.listen(PORT, '0.0.0.0', () => {
   startAutoSell();
   syncHeliusOnStartup();
 });
+
